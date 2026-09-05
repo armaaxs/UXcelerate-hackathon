@@ -7,13 +7,14 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { useStore } from '../store';
 import type { CameraPreset } from '../store';
 import { GRID_N, DISTRICT_HALF } from '../store';
+import { PARIS } from '../data/district';
 
 const SEV_COLOR: Record<string, number> = {
   Advisory: 0x94a3b8, Caution: 0xfbbf24, Dangerous: 0xfb7185, Critical: 0xef4444,
 };
 
 function makeLabel(text: string, opts?: { fg?: string; bg?: string; size?: number }): THREE.Sprite {
-  const { fg = '#e2e8f0', bg = 'rgba(8,12,22,0.82)', size = 44 } = opts ?? {};
+  const { fg = '#e2e8f0', bg = 'rgba(8,12,22,0.66)', size = 44 } = opts ?? {};
   const c = document.createElement('canvas');
   c.width = 256; c.height = 80;
   const g = c.getContext('2d')!;
@@ -45,7 +46,7 @@ function setLabel(sp: THREE.Sprite, text: string, opts?: { fg?: string }) {
   const c = document.createElement('canvas');
   c.width = 256; c.height = 80;
   const g = c.getContext('2d')!;
-  g.fillStyle = 'rgba(8,12,22,0.82)';
+  g.fillStyle = 'rgba(8,12,22,0.66)';
   g.beginPath();
   g.roundRect(4, 8, 248, 64, 16);
   g.fill();
@@ -74,14 +75,17 @@ function robotColor(status: string): string {
   }
 }
 
-const PRESETS: Record<CameraPreset, { pos: [number, number, number]; tgt: [number, number, number] }> = {
-  incident: { pos: [150, 165, 150], tgt: [0, 0, 0] },
-  robots: { pos: [60, 70, 110], tgt: [50, 0, 45] },
-  hazards: { pos: [80, 55, 90], tgt: [72, 2, 38] },
-  survivors: { pos: [95, 45, 70], tgt: [78, 7, 32] },
-  comms: { pos: [-40, 170, 60], tgt: [-60, 0, -60] },
-  coverage: { pos: [0, 220, 40], tgt: [0, 0, 0] },
-};
+// camera presets anchor on the live B14 block (real Paris coords come from the store)
+function presetFor(name: CameraPreset, fx: number, fz: number): { pos: [number, number, number]; tgt: [number, number, number] } {
+  switch (name) {
+    case 'incident': return { pos: [235, 215, 235], tgt: [10, 30, 10] };
+    case 'robots': return { pos: [fx - 70, 95, fz + 150], tgt: [fx - 25, 0, fz + 25] };
+    case 'hazards': return { pos: [fx + 30, 62, fz + 80], tgt: [fx, 4, fz] };
+    case 'survivors': return { pos: [fx + 40, 52, fz + 60], tgt: [fx, 8, fz] };
+    case 'comms': return { pos: [105, 195, 125], tgt: [105, 0, 10] };
+    case 'coverage': return { pos: [0, 340, 90], tgt: [0, 0, 10] };
+  }
+}
 
 export default function RescueCanvas() {
   const mountRef = useRef<HTMLDivElement>(null);
@@ -101,8 +105,8 @@ export default function RescueCanvas() {
       (window as unknown as { __scene: THREE.Scene }).__scene = scene;
     }
 
-    const camera = new THREE.PerspectiveCamera(52, mount.clientWidth / mount.clientHeight, 0.5, 2000);
-    camera.position.set(150, 165, 150);
+    const camera = new THREE.PerspectiveCamera(52, mount.clientWidth / mount.clientHeight, 0.5, 2500);
+    camera.position.set(235, 215, 235);
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.target.set(0, 0, 0);
     controls.enableDamping = true;
@@ -128,7 +132,7 @@ export default function RescueCanvas() {
       );
       ground.rotation.x = -Math.PI / 2;
       staticG.add(ground);
-      const grid = new THREE.GridHelper(DISTRICT_HALF * 2 + 40, 52, 0x1e3a5f, 0x14243c);
+      const grid = new THREE.GridHelper(DISTRICT_HALF * 2 + 40, 42, 0x1e3a5f, 0x14243c);
       grid.position.y = 0.05;
       (grid.material as THREE.Material).transparent = true;
       (grid.material as THREE.Material).opacity = 0.5;
@@ -146,21 +150,109 @@ export default function RescueCanvas() {
     })();
     void district;
 
-    // roads
-    const roadMat = new THREE.MeshStandardMaterial({ color: 0x131c30, roughness: 1 });
-    const roadGeos: THREE.Mesh[] = [];
-    const S = DISTRICT_HALF, r = 5;
-    const roadDefs = [
-      { x: -S, z: -r, w: S * 2, d: r * 2 }, { x: -r, z: -S, w: r * 2, d: S * 2 },
-      { x: -S, z: -S, w: S * 2, d: 6 }, { x: -S, z: S - 6, w: S * 2, d: 6 },
-      { x: -S, z: -S, w: 6, d: S * 2 }, { x: S - 6, z: -S, w: 6, d: S * 2 },
-    ];
-    roadDefs.forEach((rd) => {
-      const m = new THREE.Mesh(new THREE.BoxGeometry(rd.w, 0.18, rd.d), roadMat);
-      m.position.set(rd.x + rd.w / 2, 0.09, rd.z + rd.d / 2);
-      staticG.add(m); roadGeos.push(m);
-    });
-    // staging + command
+    // ── real Paris furniture: Seine, parks, streets, city fabric, staging ──
+    function flatShape(pts: [number, number][]): THREE.BufferGeometry {
+      const sh = new THREE.Shape(pts.map(([x, z]) => new THREE.Vector2(x, -z)));
+      const g = new THREE.ShapeGeometry(sh);
+      g.rotateX(-Math.PI / 2);
+      return g;
+    }
+    // real footprint extruded to height H (world coords, base at y=0)
+    function massGeometry(pts: [number, number][], h: number): THREE.BufferGeometry {
+      const sh = new THREE.Shape(pts.map(([x, z]) => new THREE.Vector2(x, -z)));
+      const g = new THREE.ExtrudeGeometry(sh, { depth: h, bevelEnabled: false });
+      g.rotateX(-Math.PI / 2);
+      return g;
+    }
+    // Eiffel Tower: tapered lattice legs, arched collar, 3 decks (57/115/276), shaft, spire (330)
+    function buildTowerMesh(tx: number, tz: number): { group: THREE.Group; mats: THREE.Material[] } {
+      const iron = new THREE.MeshStandardMaterial({ color: 0x8a7c60, roughness: 0.68, metalness: 0.45 });
+      const dark = new THREE.MeshStandardMaterial({ color: 0x54493c, roughness: 0.9 });
+      const grp = new THREE.Group();
+      const add = (geo: THREE.BufferGeometry, mat: THREE.Material, x: number, y: number, z: number) => {
+        const m = new THREE.Mesh(geo, mat);
+        m.position.set(x, y, z);
+        grp.add(m);
+        return m;
+      };
+      for (const [sx, sz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]] as const) {
+        const leg = add(new THREE.CylinderGeometry(2.4, 6.8, 62, 6), iron, tx + sx * 27, 31, tz + sz * 27);
+        leg.rotation.z = -sx * 0.06;
+        leg.rotation.x = sz * 0.06;
+      }
+      add(new THREE.BoxGeometry(64, 4, 64), dark, tx, 55, tz);
+      add(new THREE.BoxGeometry(44, 2.5, 44), iron, tx, 58.5, tz);
+      add(new THREE.CylinderGeometry(9, 13.5, 57, 8), iron, tx, 86.5, tz);
+      add(new THREE.BoxGeometry(30, 2.5, 30), iron, tx, 116.5, tz);
+      add(new THREE.CylinderGeometry(3.5, 8, 161, 8), iron, tx, 195.5, tz);
+      add(new THREE.BoxGeometry(18, 2.5, 18), iron, tx, 277.5, tz);
+      add(new THREE.CylinderGeometry(0.7, 1.6, 54, 6), dark, tx, 303, tz);
+      return { group: grp, mats: [iron, dark] };
+    }
+    function ribbon(pts: [number, number][], w: number): THREE.BufferGeometry {
+      const hw = w / 2;
+      const verts: number[] = [];
+      const idx: number[] = [];
+      for (let i = 0; i < pts.length; i++) {
+        const [x, z] = pts[i];
+        const [px, pz] = pts[Math.max(0, i - 1)];
+        const [nx, nz] = pts[Math.min(pts.length - 1, i + 1)];
+        let dx = nx - px, dz = nz - pz;
+        const L = Math.hypot(dx, dz) || 1; dx /= L; dz /= L;
+        verts.push(x - dz * hw, 0, z + dx * hw, x + dz * hw, 0, z - dx * hw);
+        if (i > 0) { const a = (i - 1) * 2; idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2); }
+      }
+      const g = new THREE.BufferGeometry();
+      g.setAttribute('position', new THREE.Float32BufferAttribute(verts, 3));
+      g.setIndex(idx);
+      g.computeVertexNormals();
+      return g;
+    }
+    // Seine
+    const waterMat = new THREE.MeshBasicMaterial({ color: 0x14466e, transparent: true, opacity: 0.92 });
+    let seineLabelAt: [number, number] | null = null;
+    for (const w of PARIS.water) {
+      const m = new THREE.Mesh(flatShape(w.pts), waterMat);
+      m.position.y = 0.08;
+      staticG.add(m);
+      if (!seineLabelAt || w.pts.length > 60) {
+        const cx = w.pts.reduce((s, p) => s + p[0], 0) / w.pts.length;
+        const cz = w.pts.reduce((s, p) => s + p[1], 0) / w.pts.length;
+        seineLabelAt = [cx, cz];
+      }
+    }
+    if (seineLabelAt) {
+      const sl = makeLabel('SEINE', { fg: '#7dd3fc' });
+      sl.position.set(seineLabelAt[0], 6, seineLabelAt[1]);
+      staticG.add(sl);
+    }
+    // parks / lawns (Champ de Mars)
+    const greenMat = new THREE.MeshStandardMaterial({ color: 0x143522, roughness: 1 });
+    for (const g of PARIS.green) {
+      if (g.pts.length < 3) continue;
+      const m = new THREE.Mesh(flatShape(g.pts), greenMat);
+      m.position.y = 0.1;
+      staticG.add(m);
+    }
+    // city fabric: every other real footprint, flat and quiet
+    const ctxMat = new THREE.MeshStandardMaterial({ color: 0x27334a, roughness: 0.95 });
+    for (const c of PARIS.context) {
+      const pts = 'pts' in c ? c.pts : [[c.rect[0], c.rect[1]], [c.rect[2], c.rect[1]], [c.rect[2], c.rect[3]], [c.rect[0], c.rect[3]]] as [number, number][];
+      if (pts.length < 3) continue;
+      const m = new THREE.Mesh(flatShape(pts), ctxMat);
+      m.position.y = 0.14;
+      staticG.add(m);
+    }
+    // real streets as ribbons
+    const roadMatV = new THREE.MeshStandardMaterial({ color: 0x131c30, roughness: 1 });
+    const roadMatP = new THREE.MeshStandardMaterial({ color: 0x182239, roughness: 1 });
+    for (const rd of PARIS.roads) {
+      if (rd.pts.length < 2) continue;
+      const m = new THREE.Mesh(ribbon(rd.pts, rd.w), rd.cls === 'pedestrian' ? roadMatP : roadMatV);
+      m.position.y = 0.16;
+      staticG.add(m);
+    }
+    // staging (Champ de Mars) + command post
     function flatMarker(x: number, z: number, w: number, d: number, color: number, opacity: number) {
       const m = new THREE.Mesh(new THREE.PlaneGeometry(w, d),
         new THREE.MeshBasicMaterial({ color, transparent: true, opacity, side: THREE.DoubleSide }));
@@ -169,30 +261,33 @@ export default function RescueCanvas() {
       staticG.add(m);
       return m;
     }
-    flatMarker(-8, 118, 46, 14, 0x10b981, 0.22);
-    flatMarker(14, 118, 10, 10, 0x22d3ee, 0.3);
+    flatMarker(PARIS.staging.x, PARIS.staging.z, 40, 12, 0x10b981, 0.2);
+    flatMarker(PARIS.command.x, PARIS.command.z, 10, 10, 0x22d3ee, 0.28);
+    const stLabel = makeLabel('STAGING · CHAMP DE MARS', { fg: '#6ee7b7' });
+    stLabel.position.set(PARIS.staging.x, 8, PARIS.staging.z);
+    staticG.add(stLabel);
     // dead zone (comms blackout)
+    const dz = PARIS.deadZone;
     const dzMesh = new THREE.Mesh(new THREE.CircleGeometry(1, 48),
       new THREE.MeshBasicMaterial({ color: 0xef4444, transparent: true, opacity: 0.08, side: THREE.DoubleSide }));
     dzMesh.rotation.x = -Math.PI / 2;
-    dzMesh.position.set(-88, 0.25, -88);
-    dzMesh.scale.set(42, 38, 1);
+    dzMesh.position.set(dz.x, 0.25, dz.z);
+    dzMesh.scale.set(dz.rx, dz.rz, 1);
     staticG.add(dzMesh);
     const dzRing = new THREE.Mesh(new THREE.RingGeometry(0.96, 1, 48),
       new THREE.MeshBasicMaterial({ color: 0xef4444, transparent: true, opacity: 0.5, side: THREE.DoubleSide }));
     dzRing.rotation.x = -Math.PI / 2;
-    dzRing.position.set(-88, 0.26, -88);
-    dzRing.scale.set(42, 38, 1);
+    dzRing.position.set(dz.x, 0.26, dz.z);
+    dzRing.scale.set(dz.rx, dz.rz, 1);
     staticG.add(dzRing);
     const dzLabel = makeLabel('COMMS DEAD ZONE', { fg: '#fca5a5' });
-    dzLabel.position.set(-88, 10, -88);
+    dzLabel.position.set(dz.x, 10, dz.z);
     staticG.add(dzLabel);
 
-    // relay towers
+    // relay towers (real ops positions)
     const relayG = new THREE.Group();
     scene.add(relayG);
-    const relayPos: [number, number][] = [[-40, 60], [44, -40], [-8, 112]];
-    relayPos.forEach(([x, z]) => {
+    PARIS.relays.forEach(({ x, z }) => {
       const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.8, 16, 8),
         new THREE.MeshStandardMaterial({ color: 0x22d3ee, emissive: 0x0e7490, emissiveIntensity: 0.7 }));
       pole.position.set(x, 8, z);
@@ -225,7 +320,7 @@ export default function RescueCanvas() {
     const pcCount = 2600;
     const pcArr = new Float32Array(pcCount * 3);
     pcGeo.setAttribute('position', new THREE.BufferAttribute(pcArr, 3));
-    const pcMat = new THREE.PointsMaterial({ color: 0x67e8f9, size: 0.55, transparent: true, opacity: 0.75 });
+    const pcMat = new THREE.PointsMaterial({ color: 0x67e8f9, size: 0.5, transparent: true, opacity: 0.5 });
     const points = new THREE.Points(pcGeo, pcMat);
     scene.add(points);
 
@@ -242,7 +337,7 @@ export default function RescueCanvas() {
     // distance-attenuated labels: constant ~screen-size text from street level to full-incident zoom
     function attenuate(sp: THREE.Sprite, world: THREE.Vector3, baseW: number, baseH: number) {
       const d = camera.position.distanceTo(world);
-      const w = THREE.MathUtils.clamp(d * 0.085, 2.4, 30);
+      const w = THREE.MathUtils.clamp(d * 0.08, 2.4, 28);
       sp.scale.set(w, w * (baseH / baseW), 1);
     }
     let camAnim: { p0: THREE.Vector3; p1: THREE.Vector3; t0: THREE.Vector3; t1: THREE.Vector3; k: number } | null = null;
@@ -349,7 +444,10 @@ export default function RescueCanvas() {
       // camera requests
       if (st.camReq && st.camReq.nonce !== lastCamNonce) {
         lastCamNonce = st.camReq.nonce;
-        const p = PRESETS[st.camReq.name];
+        const b14 = st.buildings.find((b) => b.id === 'B14');
+        const fx = b14 ? b14.x + b14.w / 2 : 120;
+        const fz = b14 ? b14.z + b14.d / 2 : 0;
+        const p = presetFor(st.camReq.name, fx, fz);
         tweenCam(p.pos, p.tgt);
       }
       if (st.focusReq && st.focusReq.nonce !== lastFocusNonce) {
@@ -362,7 +460,10 @@ export default function RescueCanvas() {
         if (kind === 'survivor') { const sv = st.survivors.find((x) => x.id === id); if (sv) tgt = new THREE.Vector3(sv.pos.x, 4, sv.pos.z); }
         if (tgt) {
           // kind-aware framing distance + enforced elevation so we never end up inside geometry
-          const dist = kind === 'building' ? 95 : kind === 'robot' ? 34 : 48;
+          const bb = kind === 'building' ? st.buildings.find((x) => x.id === id) : undefined;
+          const dist = kind === 'building'
+            ? Math.max(60, Math.max(bb?.w ?? 30, bb?.d ?? 30) * 2.4 + 35)
+            : kind === 'robot' ? 34 : 48;
           const dirV = camera.position.clone().sub(controls.target);
           if (dirV.lengthSq() < 1e-4) dirV.set(1, 0.6, 1);
           const az = Math.atan2(dirV.x, dirV.z);
@@ -388,9 +489,9 @@ export default function RescueCanvas() {
 
       // clipping planes
       const planes: THREE.Plane[] = [];
-      if (st.cutX != null) planes.push(new THREE.Plane(new THREE.Vector3(-1, 0, 0), -130 + st.cutX * 260));
-      if (st.cutZ != null) planes.push(new THREE.Plane(new THREE.Vector3(0, 0, -1), -130 + st.cutZ * 260));
-      if (st.cutY != null) planes.push(new THREE.Plane(new THREE.Vector3(0, -1, 0), st.cutY * 24));
+      if (st.cutX != null) planes.push(new THREE.Plane(new THREE.Vector3(-1, 0, 0), -190 + st.cutX * 380));
+      if (st.cutZ != null) planes.push(new THREE.Plane(new THREE.Vector3(0, 0, -1), -190 + st.cutZ * 380));
+      if (st.cutY != null) planes.push(new THREE.Plane(new THREE.Vector3(0, -1, 0), st.cutY * 330));
 
       // ── buildings ──
       for (const b of st.buildings) {
@@ -405,41 +506,73 @@ export default function RescueCanvas() {
         if ((g.userData.floors as number) !== b.floors) {
           while (g.children.length) { const c = g.children.pop()!; g.remove(c); }
           g.userData.floors = b.floors;
+          g.userData.mats = undefined;
+          g.userData.platY = undefined;
           const cx = b.x + b.w / 2, cz = b.z + b.d / 2;
-          const H = b.floors * b.floorHeight;
-          // baseline mass (what we believed)
-          const base = new THREE.Mesh(
-            new THREE.BoxGeometry(b.w, H, b.d),
-            new THREE.MeshStandardMaterial({ color: 0x3b4c63, transparent: true, opacity: 0.32, roughness: 0.9, depthWrite: false, clippingPlanes: planes }),
-          );
-          base.position.set(cx, H / 2, cz);
-          base.userData.buildingId = b.id;
-          g.add(base);
-          g.userData.base = base;
-          // observed mass (what robots confirmed)
-          const obs = new THREE.Mesh(
-            new THREE.BoxGeometry(b.w, H, b.d),
-            new THREE.MeshStandardMaterial({ color: b.condition === 'collapsed' ? 0x5b3a36 : 0x2dd4bf, transparent: true, opacity: 0.5, roughness: 0.7, clippingPlanes: planes }),
-          );
-          obs.position.set(cx, H / 2, cz);
-          obs.userData.buildingId = b.id;
-          g.add(obs);
-          g.userData.obs = obs;
-          // edges
-          const edge = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(b.w, H, b.d)), new THREE.LineBasicMaterial({ color: 0x7dd3fc, transparent: true, opacity: 0.5 }));
-          edge.position.set(cx, H / 2, cz);
-          g.add(edge);
-          // floor slabs for exploded view
-          const slabs: THREE.Mesh[] = [];
-          for (let f = 0; f < b.floors; f++) {
-            const slab = new THREE.Mesh(new THREE.BoxGeometry(b.w, 0.5, b.d),
-              new THREE.MeshStandardMaterial({ color: 0x155e75, transparent: true, opacity: 0.85, clippingPlanes: planes }));
-            slab.userData.buildingId = b.id;
-            slab.visible = false;
-            g.add(slab);
-            slabs.push(slab);
+          const H = b.kind === 'tower' ? 276 : b.floors * b.floorHeight;
+          const poly: [number, number][] = b.poly ?? [[b.x, b.z], [b.x + b.w, b.z], [b.x + b.w, b.z + b.d], [b.x, b.z + b.d]];
+          if (b.kind === 'tower') {
+            // Eiffel Tower — procedural lattice landmark, real heights (330 m, decks 57/115/276)
+            const { group: tw, mats } = buildTowerMesh(cx, cz);
+            tw.traverse((o) => { o.userData.buildingId = b.id; });
+            g.add(tw);
+            g.userData.mats = mats;
+            const base = new THREE.Mesh(flatShape(poly),
+              new THREE.MeshStandardMaterial({ color: 0x3b4c63, transparent: true, opacity: 0.3, roughness: 0.9, depthWrite: false, clippingPlanes: planes }));
+            base.position.y = 0.25;
+            base.userData.buildingId = b.id;
+            g.add(base);
+            g.userData.base = base;
+            const obs = new THREE.Mesh(new THREE.BufferGeometry(),
+              new THREE.MeshStandardMaterial({ transparent: true, opacity: 0, depthWrite: false }));
+            obs.visible = false;
+            g.add(obs);
+            g.userData.obs = obs;
+            const edge = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(b.w, H, b.d)), new THREE.LineBasicMaterial({ color: 0x7dd3fc, transparent: true, opacity: 0.22 }));
+            edge.position.set(cx, H / 2, cz);
+            g.add(edge);
+            const slabs: THREE.Mesh[] = [];
+            for (const s of [44, 30, 18]) {
+              const slab = new THREE.Mesh(new THREE.BoxGeometry(s, 1.2, s),
+                new THREE.MeshStandardMaterial({ color: 0x0e7490, transparent: true, opacity: 0.55, clippingPlanes: planes }));
+              slab.userData.buildingId = b.id;
+              slab.visible = false;
+              g.add(slab);
+              slabs.push(slab);
+            }
+            g.userData.slabs = slabs;
+            g.userData.platY = [58.5, 116.5, 277.5];
+          } else {
+            // baseline mass (what we believed) — REAL footprint, extruded
+            const massGeo = massGeometry(poly, H);
+            const base = new THREE.Mesh(massGeo,
+              new THREE.MeshStandardMaterial({ color: 0x3b4c63, transparent: true, opacity: 0.32, roughness: 0.9, depthWrite: false, clippingPlanes: planes }),
+            );
+            base.userData.buildingId = b.id;
+            g.add(base);
+            g.userData.base = base;
+            // observed mass (what robots confirmed)
+            const obs = new THREE.Mesh(massGeometry(poly, H),
+              new THREE.MeshStandardMaterial({ color: b.condition === 'collapsed' ? 0x5b3a36 : 0x2dd4bf, transparent: true, opacity: 0.5, roughness: 0.7, clippingPlanes: planes }),
+            );
+            obs.userData.buildingId = b.id;
+            g.add(obs);
+            g.userData.obs = obs;
+            // edges
+            const edge = new THREE.LineSegments(new THREE.EdgesGeometry(massGeo), new THREE.LineBasicMaterial({ color: 0x7dd3fc, transparent: true, opacity: 0.32 }));
+            g.add(edge);
+            // floor slabs for exploded view
+            const slabs: THREE.Mesh[] = [];
+            for (let f = 0; f < b.floors; f++) {
+              const slab = new THREE.Mesh(massGeometry(poly, 0.5),
+                new THREE.MeshStandardMaterial({ color: 0x155e75, transparent: true, opacity: 0.85, clippingPlanes: planes }));
+              slab.userData.buildingId = b.id;
+              slab.visible = false;
+              g.add(slab);
+              slabs.push(slab);
+            }
+            g.userData.slabs = slabs;
           }
-          g.userData.slabs = slabs;
           // rubble for damaged/collapsed
           if (b.condition === 'collapsed' || b.condition === 'partial') {
             const rub = new THREE.Group();
@@ -469,9 +602,10 @@ export default function RescueCanvas() {
         (base.material as THREE.MeshStandardMaterial).clippingPlanes = planes;
         (obs.material as THREE.MeshStandardMaterial).clippingPlanes = planes;
         slabs.forEach((sl) => { (sl.material as THREE.MeshStandardMaterial).clippingPlanes = planes; });
+        ((g.userData.mats as THREE.Material[] | undefined) ?? []).forEach((m) => { m.clippingPlanes = planes; });
 
         const showBase = st.layers.baseline && !st.compare;
-        const showObs = st.layers.observed || st.compare;
+        const showObs = (st.layers.observed || st.compare) && b.kind !== 'tower';
         base.visible = showBase && !isolated && !dimOthers ? true : showBase && dimOthers ? true : false;
         (base.material as THREE.MeshStandardMaterial).opacity = dimOthers ? 0.05 : st.compare ? 0.12 : 0.32;
         obs.visible = showObs;
@@ -482,10 +616,14 @@ export default function RescueCanvas() {
         if (b.contradicted) { om.color.set(0xf472b6); }
         // slabs in exploded/isolated mode
         const explodeOn = isolated && st.explode > 0.02;
+        const platY = (g.userData.platY as number[] | undefined) ?? null;
         slabs.forEach((sl, f) => {
           sl.visible = explodeOn;
-          const gap = st.explode * 10;
-          sl.position.set(cx, f * (b.floorHeight + gap) + 1, cz);
+          if (platY) sl.position.set(cx, platY[f] + st.explode * f * 16, cz);
+          else {
+            const gap = st.explode * 10;
+            sl.position.set(0, f * (b.floorHeight + gap) + 0.75, 0);
+          }
           const explored = b.floorsExplored[f];
           (sl.material as THREE.MeshStandardMaterial).color.set(explored ? 0x0e7490 : 0x1e293b);
           (sl.material as THREE.MeshStandardMaterial).opacity = explored ? 0.55 : 0.3;
@@ -493,8 +631,8 @@ export default function RescueCanvas() {
         if (explodeOn) { obs.visible = false; base.visible = st.layers.baseline; }
         label.visible = st.layers.labels && !dimOthers;
         if (label.visible) {
-          const conf = Math.round((b.observed > 0 ? 0.55 + b.observed * 0.4 : b.baselineConfidence) * 100);
-          setLabel(label, `${b.id} ${Math.round(b.observed * 100)}% · ${b.condition.slice(0, 4).toUpperCase()}`, { fg: b.priority ? '#f0abfc' : b.contradicted ? '#f9a8d4' : '#bae6fd' });
+          if (b.kind === 'tower') setLabel(label, `EIFFEL TOWER · 330 M`, { fg: '#e7d6b5' });
+          else setLabel(label, `${b.id} ${Math.round(b.observed * 100)}% · ${b.condition.slice(0, 4).toUpperCase()}`, { fg: b.priority ? '#f0abfc' : b.contradicted ? '#f9a8d4' : '#bae6fd' });
           label.position.set(cx, (explodeOn ? b.floors * (b.floorHeight + st.explode * 10) : H) + 6, cz);
           attenuate(label, label.position, 14, 4.4);
         }

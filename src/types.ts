@@ -72,6 +72,9 @@ export interface BuildingState {
   stale: boolean; // after aftershock
   floorsExplored: boolean[];
   center: Vec3;
+  /** real footprint polygon (local meters, [x,z]); bbox fields stay for logic */
+  poly?: [number, number][];
+  kind?: 'tower' | 'block';
 }
 
 export interface Hazard {

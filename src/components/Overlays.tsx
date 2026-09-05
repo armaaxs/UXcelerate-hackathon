@@ -3,7 +3,8 @@ import {
   Layers, MousePointer2, Ruler, PenSquare, TriangleAlert, Crosshair,
   Video, X, Check, BellRing, Slice, Boxes, GitCompareArrows,
 } from 'lucide-react';
-import { useStore, fmtAge } from '../store';
+import { useStore, fmtAge, DISTRICT_HALF } from '../store';
+import { PARIS } from '../data/district';
 import type { LayerState } from '../types';
 import type { MissionType } from '../types';
 
@@ -72,28 +73,30 @@ export function MapToolbar({ onLayers }: { onLayers: () => void }) {
   const [mtype, setMtype] = useState<MissionType>('SearchStructure');
   return (
     <>
-      <div className="float tools" role="toolbar" aria-label="Map tools">
-        <button className="iconbtn on" title="Select (click objects)"><MousePointer2 size={14} /></button>
-        <button className="iconbtn" id="layer-panel-toggle" title="Layers (L)" onClick={onLayers}><Layers size={14} /></button>
-        <button className="iconbtn" title="Measure (demo: logs distance between R-04 and R-05)" onClick={() => {
+      <div className="float tools vertical" role="toolbar" aria-label="Map tools">
+        <button className="iconbtn" id="layer-panel-toggle" title="Layers (L)" onClick={onLayers}><Layers size={15} /></button>
+        <button className="iconbtn" title="Measure R-04 ↔ R-05" onClick={() => {
           const st = useStore.getState();
           const a = st.robots.find((r) => r.id === 'R-04')!;
           const b = st.robots.find((r) => r.id === 'R-05')!;
           const d = Math.hypot(a.pos.x - b.pos.x, a.pos.z - b.pos.z);
           st.auditLog(`Measured R-04 ↔ R-05: ${d.toFixed(1)} m.`);
-        }}><Ruler size={14} /></button>
-        <button className="iconbtn" title="Annotate (adds operator note at map centre)" onClick={() => {
+        }}><Ruler size={15} /></button>
+        <button className="iconbtn" title="Add operator note" onClick={() => {
           const st = useStore.getState();
           st.auditLog('Annotation added at incident centre: "Staging expansion — OP-A".');
-        }}><PenSquare size={14} /></button>
-        <button className="iconbtn" title="Report hazard at selected robot" onClick={() => useStore.getState().triggerHazard()}><TriangleAlert size={14} /></button>
-        <button className="iconbtn" title="Compare baseline vs current" onClick={() => useStore.getState().toggleCompare()}><GitCompareArrows size={14} /></button>
-        <button className="iconbtn" title="Screenshot (uses browser capture)" onClick={() => window.print()}><Video size={14} /></button>
+        }}><PenSquare size={15} /></button>
+        <button className="iconbtn" title="Report hazard at selected robot" onClick={() => useStore.getState().triggerHazard()}><TriangleAlert size={15} /></button>
+        <button className="iconbtn" title="Compare baseline vs current" onClick={() => useStore.getState().toggleCompare()}><GitCompareArrows size={15} /></button>
       </div>
       <div className="float campresets">
-        {(['incident', 'robots', 'hazards', 'survivors', 'comms', 'coverage'] as const).map((p) => (
-          <button key={p} className="btn sm" onClick={() => gotoPreset(p)}><Crosshair size={11} /> {p[0].toUpperCase() + p.slice(1)}</button>
-        ))}
+        <Crosshair size={12} color="#5f6d82" />
+        <select value="" onChange={(e) => { if (e.target.value) gotoPreset(e.target.value as never); e.target.value = ''; }} aria-label="Camera view">
+          <option value="">View…</option>
+          {(['incident', 'robots', 'hazards', 'survivors', 'comms', 'coverage'] as const).map((p) => (
+            <option key={p} value={p}>{p[0].toUpperCase() + p.slice(1)}</option>
+          ))}
+        </select>
         {missionDraft ? (
           <span className="badge sim">CLICK MAP → {missionDraft.type.toUpperCase()} <button className="iconbtn" style={{ width: 18, height: 18 }} onClick={cancelMissionDraft}><X size={11} /></button></span>
         ) : (
@@ -111,26 +114,33 @@ export function MapToolbar({ onLayers }: { onLayers: () => void }) {
 }
 
 function LegendFloat() {
+  const [open, setOpen] = useState(false);
   const compare = useStore((s) => s.compare);
-  const isolatedId = useStore((s) => s.isolatedId);
-  void isolatedId;
   return (
-    <div className="float legend">
-      <div className="row"><span className="sw" style={{ background: '#3b4c63' }} /> Baseline — unverified import</div>
-      <div className="row"><span className="sw" style={{ background: '#2dd4bf' }} /> Observed — robot-confirmed</div>
-      <div className="row"><span className="sw" style={{ background: '#f472b6' }} /> Contradicted by robots</div>
-      <div className="row"><span className="sw" style={{ background: '#f0abfc' }} /> Survivor — P0 priority</div>
-      {compare && <div className="row" style={{ color: '#a5f3fc' }}>◐ COMPARE: baseline vs current</div>}
-      <div className="row" style={{ color: 'var(--dim)' }}>Double-click map with mission armed to task</div>
+    <div className="float keychip">
+      <button onClick={() => setOpen((o) => !o)} aria-expanded={open} aria-label="Map key">
+        <span className="sw" style={{ background: '#2dd4bf' }} /> Map key {open ? '▾' : '▸'}
+      </button>
+      {open && (
+        <div className="rows">
+          <div className="row"><span className="sw" style={{ background: '#3b4c63' }} /> Baseline — unverified import</div>
+          <div className="row"><span className="sw" style={{ background: '#2dd4bf' }} /> Observed — robot-confirmed</div>
+          <div className="row"><span className="sw" style={{ background: '#f472b6' }} /> Contradicted by robots</div>
+          <div className="row"><span className="sw" style={{ background: '#f0abfc' }} /> Survivor — P0 priority</div>
+          {compare && <div className="row" style={{ color: '#a5f3fc' }}>◐ COMPARE: baseline vs current</div>}
+        </div>
+      )}
     </div>
   );
 }
 
-/* ── 2D minimap (PRD §50) ── */
+/* ── 2D minimap over the real Paris segment (PRD §50) ── */
 function Minimap() {
   const ref = useRef<HTMLCanvasElement>(null);
   const isolatedId = useStore((s) => s.isolatedId);
+  const [hidden, setHidden] = useState(false);
   useEffect(() => {
+    if (hidden) return;
     let raf = 0;
     function draw() {
       raf = requestAnimationFrame(draw);
@@ -139,43 +149,78 @@ function Minimap() {
       const g = c.getContext('2d')!;
       const W = c.width, H = c.height;
       const st = useStore.getState();
+      const S = DISTRICT_HALF;
       const toPx = (x: number, z: number): [number, number] => [
-        ((x + 130) / 260) * W, ((z + 130) / 260) * H,
+        ((x + S) / (2 * S)) * W, ((z + S) / (2 * S)) * H,
       ];
-      g.fillStyle = '#0a1120';
+      const path = (pts: [number, number][]) => {
+        g.beginPath();
+        pts.forEach(([x, z], i) => {
+          const [px, py] = toPx(x, z);
+          if (i === 0) g.moveTo(px, py); else g.lineTo(px, py);
+        });
+        g.closePath();
+      };
+      g.fillStyle = '#070c15';
       g.fillRect(0, 0, W, H);
+      g.fillStyle = 'rgba(20,70,110,.85)';
+      for (const w of PARIS.water) { path(w.pts); g.fill(); }
+      g.fillStyle = 'rgba(20,53,34,.9)';
+      for (const gr of PARIS.green) { if (gr.pts.length > 2) { path(gr.pts); g.fill(); } }
+      g.strokeStyle = 'rgba(90,110,140,.5)';
+      g.lineWidth = 1;
+      for (const r of PARIS.roads) {
+        g.beginPath();
+        r.pts.forEach(([x, z], i) => {
+          const [px, py] = toPx(x, z);
+          if (i === 0) g.moveTo(px, py); else g.lineTo(px, py);
+        });
+        g.stroke();
+      }
+      g.fillStyle = 'rgba(100,116,139,.45)';
+      for (const cb of PARIS.context) {
+        const pts = 'pts' in cb ? cb.pts : [[cb.rect[0], cb.rect[1]], [cb.rect[2], cb.rect[1]], [cb.rect[2], cb.rect[3]], [cb.rect[0], cb.rect[3]]] as [number, number][];
+        path(pts); g.fill();
+      }
       for (const b of st.buildings) {
-        const [x, y] = toPx(b.x, b.z);
-        const w = (b.w / 260) * W, h = (b.d / 260) * H;
-        g.fillStyle = b.id === isolatedId ? 'rgba(34,211,238,.8)' : b.priority ? 'rgba(240,171,252,.5)' : b.observed > 0.3 ? 'rgba(45,212,191,.45)' : 'rgba(100,116,139,.4)';
-        g.fillRect(x, y, w, h);
+        if (b.kind === 'tower') {
+          const [x, y] = toPx(b.x + b.w / 2, b.z + b.d / 2);
+          g.fillStyle = '#e7d6b5';
+          g.fillRect(x - 2, y - 2, 4, 4);
+          continue;
+        }
+        g.fillStyle = b.id === isolatedId ? 'rgba(34,211,238,.85)' : b.priority ? 'rgba(240,171,252,.55)' : b.observed > 0.3 ? 'rgba(45,212,191,.5)' : 'rgba(100,116,139,.5)';
+        path(b.poly ?? [[b.x, b.z], [b.x + b.w, b.z], [b.x + b.w, b.z + b.d], [b.x, b.z + b.d]]);
+        g.fill();
       }
       for (const hz of st.hazards) {
         const [x, y] = toPx(hz.pos.x, hz.pos.z);
         g.fillStyle = hz.severity === 'Critical' ? '#ef4444' : '#fbbf24';
-        g.beginPath(); g.arc(x, y, 3, 0, 7); g.fill();
+        g.beginPath(); g.arc(x, y, 2.4, 0, 7); g.fill();
       }
       for (const s of st.survivors) {
         const [x, y] = toPx(s.pos.x, s.pos.z);
         g.fillStyle = '#f0abfc';
-        g.fillRect(x - 3, y - 3, 6, 6);
+        g.fillRect(x - 2, y - 2, 4, 4);
       }
       for (const r of st.robots) {
         const [x, y] = toPx(r.pos.x, r.pos.z);
         g.fillStyle = r.status === 'CommLost' ? '#64748b' : r.color;
-        g.beginPath(); g.arc(x, y, 3.4, 0, 7); g.fill();
-        g.fillStyle = '#e2e8f0';
-        g.font = '7px monospace';
-        g.fillText(r.id, x + 5, y + 3);
+        g.beginPath(); g.arc(x, y, 2.6, 0, 7); g.fill();
       }
     }
     draw();
     return () => cancelAnimationFrame(raf);
-  }, [isolatedId]);
+  }, [isolatedId, hidden]);
   return (
     <div className="float minimap">
-      <canvas ref={ref} width={196} height={196} aria-label="2D minimap" />
-      <div className="num" style={{ fontSize: 10, color: 'var(--dim)', marginTop: 4, textAlign: 'center' }}>MINIMAP · N↑ · 260m GRID</div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+        <span className="num" style={{ fontSize: 9, color: 'var(--dim)', letterSpacing: '.08em' }}>PARIS 7E · N↑</span>
+        <button className="iconbtn" style={{ width: 18, height: 18 }} onClick={() => setHidden((h) => !h)} aria-label="Toggle minimap">
+          <X size={10} />
+        </button>
+      </div>
+      {!hidden && <canvas ref={ref} width={148} height={148} aria-label="2D minimap of Paris segment" />}
     </div>
   );
 }
@@ -186,7 +231,7 @@ export function Alerts() {
   const simTime = useStore((s) => s.simTime);
   const ack = useStore((s) => s.ack);
   const ackAll = useStore((s) => s.ackAll);
-  const pending = alerts.filter((a) => !a.acked && a.level !== 'passive').slice(0, 3);
+  const pending = alerts.filter((a) => !a.acked && a.level !== 'passive').slice(0, 2);
   const critCount = alerts.filter((a) => !a.acked && a.level === 'critical').length;
   if (pending.length === 0) return null;
   return (
@@ -302,6 +347,11 @@ export function CommandPalette() {
       { label: 'Toggle signal overlay', hint: 'layer', run: () => st.toggleLayer('signal') },
       { label: 'Camera — full incident', hint: '1', run: () => st.gotoPreset('incident') },
       { label: 'Camera — top-down coverage', hint: '2', run: () => st.gotoPreset('coverage') },
+      { label: 'Measure R-04 ↔ R-05', hint: 'tool', run: () => {
+        const a = st.robots.find((r) => r.id === 'R-04')!;
+        const b = st.robots.find((r) => r.id === 'R-05')!;
+        st.auditLog(`Measured R-04 ↔ R-05: ${Math.hypot(a.pos.x - b.pos.x, a.pos.z - b.pos.z).toFixed(1)} m.`);
+      } },
       { label: 'Trigger aftershock (demo)', hint: 'demo', run: () => st.aftershock() },
       { label: 'Reset incident', hint: 'demo', run: () => st.reset() },
     ];

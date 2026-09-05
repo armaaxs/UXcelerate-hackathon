@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import TopBar from './components/TopBar';
 import LeftPanel from './components/LeftPanel';
-import RightPanel from './components/RightPanel';
+import { InspectorCard } from './components/RightPanel';
 import BottomBar from './components/BottomBar';
 import RescueCanvas from './three/RescueCanvas';
 import { LayerPanel, MapToolbar, Alerts, BuildingFocus, CommandPalette } from './components/Overlays';
@@ -29,12 +29,12 @@ export default function App() {
               <LayerPanel open={layersOpen} onClose={() => setLayersOpen(false)} />
               <Alerts />
               <BuildingFocus />
+              <InspectorCard />
             </>
           ) : (
             <SecondaryView view={view} setView={setView} />
           )}
         </section>
-        <aside className="right" aria-label="Inspector"><RightPanel /></aside>
       </div>
       <BottomBar />
       <CommandPalette />
@@ -131,7 +131,7 @@ function SecondaryView({ view, setView }: { view: string; setView: (v: string) =
       <p style={sub}>No cloud, no map tiles, no API keys. Everything below runs on this machine.</p>
       {[
         ['Mode', 'SIMULATION (clearly badged — never masquerades as live)'],
-        ['Map source', 'Procedural district · local origin (0,0,0) · 260 m grid'],
+        ['Map source', 'Real Paris 7e segment (Eiffel Tower) · OpenStreetMap extract, bundled locally · origin at the tower'],
         ['Telemetry', `Local simulation @ ~60 fps render · ${robots.filter((r) => r.status !== 'CommLost').length}/${robots.length} links up`],
         ['Storage', 'In-memory incident model (IndexedDB-ready schema)'],
         ['Network', '0 external requests — offline capable'],

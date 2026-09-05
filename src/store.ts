@@ -8,13 +8,13 @@ import type {
   Mission, MissionType, OpEvent, Priority, RobotState, RouteState,
   Selection, Survivor, Vec3,
 } from './types';
-import { buildDistrict } from './data/district';
+import { buildDistrict, edgePoint } from './data/district';
 
 let seq = 1;
 const nid = (p: string) => `${p}-${seq++}-${Math.floor(Math.random() * 1e4)}`;
 
 export const GRID_N = 26;
-export const DISTRICT_HALF = 130;
+export const DISTRICT_HALF = 190;
 
 const SPEEDS = [1, 2, 4];
 
@@ -94,19 +94,21 @@ interface Store {
 const ROBOT_COLORS = ['#22d3ee', '#60a5fa', '#a78bfa', '#34d399', '#fbbf24', '#f472b6'];
 
 function initialRobots(staging: Vec3): RobotState[] {
+  // Waypoints follow real open ground: Champ de Mars, tower plaza (r≈73 m),
+  // Quai Branly side streets and the Rue de l'Université blocks. y=0 ground.
   const defs: { id: string; kind: string; task: string; wps: Vec3[]; mission: string | null }[] = [
-    { id: 'R-01', kind: 'Tracked UGV', task: 'Exploring western district', mission: 'M-02',
-      wps: [{ x: -60, y: 0, z: 90 }, { x: -95, y: 0, z: 40 }, { x: -90, y: 0, z: -30 }, { x: -50, y: 0, z: -60 }] , },
-    { id: 'R-02', kind: 'Quadruped', task: 'Mapping NW sector', mission: 'M-02',
-      wps: [{ x: -40, y: 0, z: 60 }, { x: -70, y: 0, z: -20 }, { x: -88, y: 0, z: -80 }, { x: -60, y: 0, z: -95 }] },
-    { id: 'R-03', kind: 'Tracked UGV', task: 'Holding central relay', mission: 'M-04',
-      wps: [{ x: 10, y: 0, z: 60 }, { x: 20, y: 0, z: 0 }, { x: -10, y: 0, z: -30 }, { x: 5, y: 0, z: 40 }] },
+    { id: 'R-01', kind: 'Tracked UGV', task: 'Exploring western blocks', mission: 'M-02',
+      wps: [{ x: -60, y: 0, z: 120 }, { x: -110, y: 0, z: 90 }, { x: -135, y: 0, z: 40 }, { x: -120, y: 0, z: -10 }, { x: -80, y: 0, z: -50 }], },
+    { id: 'R-02', kind: 'Quadruped', task: 'Probing eastern blocks', mission: 'M-02',
+      wps: [{ x: 30, y: 0, z: 70 }, { x: 70, y: 0, z: 45 }, { x: 100, y: 0, z: 20 }, { x: 112, y: 0, z: -2 }, { x: 95, y: 0, z: -40 }] },
+    { id: 'R-03', kind: 'Tracked UGV', task: 'Holding tower plaza relay', mission: 'M-04',
+      wps: [{ x: 70, y: 0, z: 25 }, { x: 25, y: 0, z: 72 }, { x: -68, y: 0, z: 25 }, { x: -25, y: 0, z: -68 }, { x: 40, y: 0, z: -60 }] },
     { id: 'R-04', kind: 'Quadruped · lidar', task: 'Search Structure B14 — north approach', mission: 'M-01',
-      wps: [{ x: 40, y: 0, z: 90 }, { x: 70, y: 0, z: 62 }, { x: 80, y: 0, z: 44 }, { x: 80, y: 0, z: 20 }] },
+      wps: [{ x: 50, y: 0, z: 110 }, { x: 110, y: 0, z: 70 }, { x: 150, y: 0, z: 25 }, { x: 168, y: 0, z: -8 }] },
     { id: 'R-05', kind: 'Tracked UGV', task: 'Search Structure B14 — south approach', mission: 'M-01',
-      wps: [{ x: 20, y: 0, z: 100 }, { x: 45, y: 0, z: 70 }, { x: 62, y: 0, z: 58 }, { x: 70, y: 0, z: 40 }] },
-    { id: 'R-06', kind: 'Scout · thermal', task: 'Exploring SE block', mission: 'M-03',
-      wps: [{ x: 60, y: 0, z: 100 }, { x: 95, y: 0, z: 70 }, { x: 90, y: 0, z: 30 }, { x: 80, y: 0, z: 38 }] },
+      wps: [{ x: 30, y: 0, z: 130 }, { x: 95, y: 0, z: 95 }, { x: 140, y: 0, z: 45 }, { x: 158, y: 0, z: -30 }] },
+    { id: 'R-06', kind: 'Scout · thermal', task: 'Sweeping blocks east of the tower', mission: 'M-03',
+      wps: [{ x: 80, y: 0, z: 125 }, { x: 130, y: 0, z: 95 }, { x: 158, y: 0, z: 50 }, { x: 150, y: 0, z: 0 }] },
   ];
   return defs.map((d, i) => {
     const start = { x: staging.x + (i - 2.5) * 6, y: 0, z: staging.z - 6 - (i % 2) * 4 };
@@ -126,10 +128,10 @@ function initialRobots(staging: Vec3): RobotState[] {
 
 function initialMissions(): Mission[] {
   return [
-    { id: 'M-01', title: 'Search Structure B14', type: 'SearchStructure', priority: 'P0', robotIds: ['R-04', 'R-05'], buildingId: 'B14', target: { x: 80, y: 0, z: 37 }, status: 'Active', progress: 12, createdAt: 0, updatedAt: 0, discoveries: 0, note: 'Baseline corridor assumed passable — verify with lidar.' },
-    { id: 'M-02', title: 'Map NW sector', type: 'MapInterior', priority: 'P1', robotIds: ['R-01', 'R-02'], buildingId: null, target: { x: -80, y: 0, z: -70 }, status: 'Active', progress: 22, createdAt: 0, updatedAt: 0, discoveries: 1, note: 'Dead-zone comms expected. Maintain relay via R-03.' },
-    { id: 'M-03', title: 'Sweep SE block for survivors', type: 'SearchSurvivors', priority: 'P1', robotIds: ['R-06'], buildingId: null, target: { x: 88, y: 0, z: 55 }, status: 'Active', progress: 8, createdAt: 0, updatedAt: 0, discoveries: 0, note: 'Thermal + audio sweep.' },
-    { id: 'M-04', title: 'Hold central relay', type: 'Relay', priority: 'P2', robotIds: ['R-03'], buildingId: null, target: { x: 10, y: 0, z: 20 }, status: 'Active', progress: 40, createdAt: 0, updatedAt: 0, discoveries: 0, note: 'Maintain mesh uplink.' },
+    { id: 'M-01', title: 'Search Structure B14', type: 'SearchStructure', priority: 'P0', robotIds: ['R-04', 'R-05'], buildingId: 'B14', target: { x: 172, y: 0, z: -28 }, status: 'Active', progress: 12, createdAt: 0, updatedAt: 0, discoveries: 0, note: 'Baseline corridor assumed passable — verify with lidar.' },
+    { id: 'M-02', title: 'Map western blocks', type: 'MapInterior', priority: 'P1', robotIds: ['R-01', 'R-02'], buildingId: null, target: { x: -100, y: 0, z: 20 }, status: 'Active', progress: 22, createdAt: 0, updatedAt: 0, discoveries: 1, note: 'Dead-zone comms expected east. Maintain relay via R-03.' },
+    { id: 'M-03', title: 'Sweep blocks east of the tower', type: 'SearchSurvivors', priority: 'P1', robotIds: ['R-06'], buildingId: null, target: { x: 140, y: 0, z: 40 }, status: 'Active', progress: 8, createdAt: 0, updatedAt: 0, discoveries: 0, note: 'Thermal + audio sweep.' },
+    { id: 'M-04', title: 'Hold tower plaza relay', type: 'Relay', priority: 'P2', robotIds: ['R-03'], buildingId: null, target: { x: 0, y: 0, z: 75 }, status: 'Active', progress: 40, createdAt: 0, updatedAt: 0, discoveries: 0, note: 'Maintain mesh uplink.' },
   ];
 }
 
@@ -147,6 +149,11 @@ function freshState() {
   seq = 1;
   district = buildDistrict();
   const robots = initialRobots(district.staging);
+  const b14c = (() => {
+    const b = district.buildings.find((x) => x.id === 'B14')!;
+    return { x: b.x + b.w / 2, y: 0, z: b.z + b.d / 2 };
+  })();
+  const missions = initialMissions().map((m) => m.id === 'M-01' ? { ...m, target: b14c } : m);
   return {
     simTime: 0,
     robots,
@@ -155,10 +162,10 @@ function freshState() {
     survivors: [] as Survivor[],
     discoveries: [] as Discovery[],
     events: [
-      { id: nid('ev'), t: 0, robotId: null, buildingId: null, kind: 'system', severity: 'P1', text: 'Incident declared — Central District. Local coordinate origin established (0,0,0).' },
-      { id: nid('ev'), t: 2, robotId: null, buildingId: null, kind: 'mission', severity: 'P2', text: '6 robots deployed from south staging. 4 missions opened.' },
+      { id: nid('ev'), t: 0, robotId: null, buildingId: null, kind: 'system', severity: 'P1', text: 'Incident declared — Paris 7e, Eiffel Tower sector. Origin at the tower; staging on Champ de Mars.' },
+      { id: nid('ev'), t: 2, robotId: null, buildingId: null, kind: 'mission', severity: 'P2', text: '6 robots deployed from Champ de Mars staging. 4 missions opened.' },
     ] as OpEvent[],
-    missions: initialMissions(),
+    missions,
     routes: initialRoutes(robots),
     alerts: [
       { id: nid('al'), t: 2, level: 'passive', title: 'Fleet deployed', detail: '6 robots connected. Mesh link nominal.', acked: true },
@@ -248,9 +255,11 @@ export const useStore = create<Store>((set, get) => {
     const s = get();
     script(s, 'blocked', 9, () => {
       const t = get().simTime;
-      addDiscovery({ kind: 'blocked_passage', label: 'Blocked entrance — B14 north corridor', detail: 'Lidar shows full-height collapse where baseline map assumed a passable corridor.', pos: { x: 80, y: 1.5, z: 52 }, buildingId: 'B14', robotId: 'R-04', confidence: 0.93, createdAt: t, priority: 'P1' },
-        'P1', 'R-04 — Passage blocked: B14 north corridor (lidar, 93%)');
-      addHazard({ category: 'blocked', severity: 'Dangerous', pos: { x: 80, y: 1.5, z: 52 }, buildingId: 'B14', floor: 0, label: 'Blocked passage — B14 north', detail: 'Baseline corridor contradicted by R-04 lidar. Route invalidated.', confidence: 0.93, source: 'R-04', confirmedBy: [], createdAt: t, updatedAt: t, status: 'active', radius: 7 },
+      const b14 = get().buildings.find((b) => b.id === 'B14')!;
+      const N = edgePoint(b14, 'N', 1.5);
+      addDiscovery({ kind: 'blocked_passage', label: 'Blocked entrance — B14 north edge', detail: 'Lidar shows full-height collapse where baseline map assumed a passable corridor.', pos: { ...N }, buildingId: 'B14', robotId: 'R-04', confidence: 0.93, createdAt: t, priority: 'P1' },
+        'P1', 'R-04 — Passage blocked: B14 north edge (lidar, 93%)');
+      addHazard({ category: 'blocked', severity: 'Dangerous', pos: { ...N }, buildingId: 'B14', floor: 0, label: 'Blocked passage — B14 north', detail: 'Baseline corridor contradicted by R-04 lidar. Route invalidated.', confidence: 0.93, source: 'R-04', confirmedBy: [], createdAt: t, updatedAt: t, status: 'active', radius: 7 },
         'R-04 — Baseline corridor contradicted at B14 north. Route RT-R-04 invalid.', 'elevated', 'Route invalidated — R-04');
       set((st) => ({
         buildings: st.buildings.map((b) => b.id === 'B14' ? { ...b, contradicted: true } : b),
@@ -260,28 +269,37 @@ export const useStore = create<Store>((set, get) => {
     });
     script(s, 'altentrance', 22, () => {
       const t = get().simTime;
-      addDiscovery({ kind: 'new_entrance', label: 'Alternative entrance — B14 south service bay', detail: 'R-05 camera confirms an accessible service opening on the south face.', pos: { x: 66, y: 1.2, z: 56 }, buildingId: 'B14', robotId: 'R-05', confidence: 0.87, createdAt: t, priority: 'P2' },
+      const b14 = get().buildings.find((b) => b.id === 'B14')!;
+      const S = edgePoint(b14, 'S', 1.2);
+      const C = { x: b14.x + b14.w / 2, y: 0, z: b14.z + b14.d / 2 };
+      const A = { x: (S.x + C.x) / 2 - 12, y: 0, z: (S.z + C.z) / 2 + 14 };
+      const S0 = { x: S.x, y: 0, z: S.z };
+      addDiscovery({ kind: 'new_entrance', label: 'Alternative entrance — B14 south service bay', detail: 'R-05 camera confirms an accessible service opening on the south face.', pos: { ...S }, buildingId: 'B14', robotId: 'R-05', confidence: 0.87, createdAt: t, priority: 'P2' },
         'P2', 'R-05 — New entrance discovered: B14 south service bay (87%)');
       set((st) => ({
         robots: st.robots.map((r) => r.id === 'R-04'
-          ? { ...r, status: 'Navigating' as const, task: 'Rerouting via B14 south entrance', waypoints: [{ x: 70, y: 0, z: 62 }, { x: 66, y: 0, z: 56 }, { x: 72, y: 0, z: 40 }], wpIndex: 0 }
+          ? { ...r, status: 'Navigating' as const, task: 'Rerouting via B14 south entrance', waypoints: [A, S0, C], wpIndex: 0 }
           : r),
-        routes: st.routes.map((r) => r.robotId === 'R-04' && r.status === 'invalid' ? { ...r, status: 'done' as const } : r).concat([{ id: nid('rt'), robotId: 'R-04', waypoints: [{ x: 70, y: 0, z: 62 }, { x: 66, y: 0, z: 56 }, { x: 72, y: 0, z: 40 }], status: 'active' as const }]),
+        routes: st.routes.map((r) => r.robotId === 'R-04' && r.status === 'invalid' ? { ...r, status: 'done' as const } : r).concat([{ id: nid('rt'), robotId: 'R-04', waypoints: [A, S0, C], status: 'active' as const }]),
         missions: st.missions.map((m) => m.id === 'M-01' ? { ...m, status: 'Active' as const, progress: Math.max(m.progress, 30) } : m),
       }));
       get().auditLog('Operator confirmed reroute: R-04 → B14 south entrance.');
     });
     script(s, 'gas', 34, () => {
       const t = get().simTime;
-      addHazard({ category: 'gas', severity: 'Critical', pos: { x: 72, y: 2, z: 38 }, buildingId: 'B14', floor: 1, label: 'Gas leak — B14 Floor 1', detail: 'Elevated concentration. R-05 gas sensor + R-04 cross-check pending.', confidence: 0.91, source: 'R-05', confirmedBy: [], createdAt: t, updatedAt: t, status: 'active', radius: 10 },
+      const b14 = get().buildings.find((b) => b.id === 'B14')!;
+      const C = { x: b14.x + b14.w / 2, z: b14.z + b14.d / 2 };
+      addHazard({ category: 'gas', severity: 'Critical', pos: { x: C.x + 2, y: 2, z: C.z }, buildingId: 'B14', floor: 1, label: 'Gas leak — B14 Floor 1', detail: 'Elevated concentration. R-05 gas sensor + R-04 cross-check pending.', confidence: 0.91, source: 'R-05', confirmedBy: [], createdAt: t, updatedAt: t, status: 'active', radius: 10 },
         'R-05 — Gas leak detected: B14 Floor 1 (91%). R-05 rerouting clear.', 'critical', 'Gas leak — B14 Floor 1');
       set((st) => ({
-        robots: st.robots.map((r) => r.id === 'R-05' ? { ...r, status: 'Navigating', task: 'Avoiding gas volume — east stairwell', waypoints: [{ x: 84, y: 0, z: 50 }, { x: 90, y: 0, z: 38 }], wpIndex: 0 } : r),
+        robots: st.robots.map((r) => r.id === 'R-05' ? { ...r, status: 'Navigating', task: 'Avoiding gas volume — east side', waypoints: [{ x: C.x + 14, y: 0, z: C.z + 4 }, { x: C.x + 20, y: 0, z: C.z + 16 }], wpIndex: 0 } : r),
       }));
     });
     script(s, 'survivor', 50, () => {
       const t = get().simTime;
-      const sv: Survivor = { id: nid('sv'), pos: { x: 78, y: 7.4, z: 32 }, buildingId: 'B14', floor: 3, confidence: 0.88, methods: ['thermal', 'audio'], status: 'Probable', detectedBy: 'R-06', detectedAt: t, priority: 'P0', accessNote: 'East stairwell passable. West stair collapsed — avoid.' };
+      const b14 = get().buildings.find((b) => b.id === 'B14')!;
+      const C = { x: b14.x + b14.w / 2, z: b14.z + b14.d / 2 };
+      const sv: Survivor = { id: nid('sv'), pos: { x: C.x, y: 7.5, z: C.z }, buildingId: 'B14', floor: 3, confidence: 0.88, methods: ['thermal', 'audio'], status: 'Probable', detectedBy: 'R-06', detectedAt: t, priority: 'P0', accessNote: 'East stairwell passable. West stair collapsed — avoid.' };
       const st = get();
       set({
         survivors: [...st.survivors, sv],
@@ -294,20 +312,24 @@ export const useStore = create<Store>((set, get) => {
     });
     script(s, 'stair', 68, () => {
       const t = get().simTime;
-      addHazard({ category: 'collapse', severity: 'Dangerous', pos: { x: 66, y: 5, z: 30 }, buildingId: 'B14', floor: 2, label: 'Collapsed stairwell — B14 west', detail: 'Vertical path F2→F3 severed. East stairwell remains the verified access.', confidence: 0.9, source: 'R-04', confirmedBy: ['R-05'], createdAt: t, updatedAt: t, status: 'active', radius: 6 },
+      const b14 = get().buildings.find((b) => b.id === 'B14')!;
+      const W = edgePoint(b14, 'W', 5);
+      addHazard({ category: 'collapse', severity: 'Dangerous', pos: { ...W }, buildingId: 'B14', floor: 2, label: 'Collapsed stairwell — B14 west', detail: 'Vertical path F2→F3 severed. East stairwell remains the verified access.', confidence: 0.9, source: 'R-04', confirmedBy: ['R-05'], createdAt: t, updatedAt: t, status: 'active', radius: 6 },
         'R-04 — Stairwell collapse: B14 west (F2→F3 severed). Use east stair.', 'elevated', 'Stairwell collapse — B14');
     });
     script(s, 'comms', 92, () => {
       set((st) => ({
-        robots: st.robots.map((r) => r.id === 'R-02' ? { ...r, status: 'CommLost', signal: 6, latencyMs: 2400, packetLoss: 38, task: 'Last known — NW dead zone', uncertainty: 6 } : r),
-        events: pushEvent(st.events, { t: st.simTime, robotId: 'R-02', buildingId: null, kind: 'comms', severity: 'P1', text: 'R-02 — telemetry connection lost. Last known position 12 s ago (NW dead zone).' }),
-        alerts: pushAlert(st.alerts, { t: st.simTime, level: 'elevated', title: 'Comms lost — R-02', detail: 'Last known NW dead zone. Uncertainty radius growing.', robotId: 'R-02' }),
+        robots: st.robots.map((r) => r.id === 'R-02' ? { ...r, status: 'CommLost', signal: 6, latencyMs: 2400, packetLoss: 38, task: 'Last known — eastern dead zone', uncertainty: 6 } : r),
+        events: pushEvent(st.events, { t: st.simTime, robotId: 'R-02', buildingId: null, kind: 'comms', severity: 'P1', text: 'R-02 — telemetry connection lost. Last known position 12 s ago (eastern dead zone).' }),
+        alerts: pushAlert(st.alerts, { t: st.simTime, level: 'elevated', title: 'Comms lost — R-02', detail: 'Last known eastern dead zone. Uncertainty radius growing.', robotId: 'R-02' }),
       }));
       get().auditLog('R-02 link lost (dead zone). Uncertainty envelope expanding.');
     });
     script(s, 'verify', 110, () => {
       const t = get().simTime;
-      addDiscovery({ kind: 'new_room', label: 'Interior mapped — B14 Floor 1 east wing', detail: 'R-05 lidar completed east wing sweep. 6 rooms verified.', pos: { x: 86, y: 2, z: 34 }, buildingId: 'B14', robotId: 'R-05', confidence: 0.84, createdAt: t, priority: 'P3' },
+      const b14 = get().buildings.find((b) => b.id === 'B14')!;
+      const E = edgePoint(b14, 'E', 2);
+      addDiscovery({ kind: 'new_room', label: 'Interior mapped — B14 Floor 1 east wing', detail: 'R-05 lidar completed east wing sweep. 6 rooms verified.', pos: { ...E }, buildingId: 'B14', robotId: 'R-05', confidence: 0.84, createdAt: t, priority: 'P3' },
         'P3', 'R-05 — Mapping completed: B14 Floor 1 east wing (84%)');
     });
   }
@@ -465,9 +487,9 @@ export const useStore = create<Store>((set, get) => {
       const ids = ['B07', 'B10', 'B14'];
       set({
         buildings: s.buildings.map((b) => ids.includes(b.id) ? { ...b, stale: true, contradicted: b.id === 'B14' ? true : b.contradicted } : b),
-        hazards: [...s.hazards, { id: nid('hz'), category: 'aftershock', severity: 'Dangerous', pos: { x: 30, y: 2, z: 10 }, buildingId: null, floor: null, label: 'Aftershock damage — central blocks', detail: 'M5.1 aftershock. Central-block observations marked STALE — reverification required.', confidence: 0.99, source: 'System', confirmedBy: [], createdAt: s.simTime, updatedAt: s.simTime, status: 'active', radius: 55 }],
-        events: pushEvent(s.events, { t: s.simTime, robotId: null, buildingId: null, kind: 'system', severity: 'P0', text: 'AFTERSHOCK M5.1 — central blocks marked STALE. Safe routes require reverification.' }),
-        alerts: pushAlert(s.alerts, { t: s.simTime, level: 'critical', title: 'Aftershock M5.1', detail: 'Central blocks stale. Routes through B07 / B10 / B14 need reverification.', }),
+        hazards: [...s.hazards, { id: nid('hz'), category: 'aftershock', severity: 'Dangerous', pos: { x: 40, y: 2, z: 30 }, buildingId: null, floor: null, label: 'Aftershock damage — eastern blocks', detail: 'M5.1 aftershock. Nearby-block observations marked STALE — reverification required.', confidence: 0.99, source: 'System', confirmedBy: [], createdAt: s.simTime, updatedAt: s.simTime, status: 'active', radius: 60 }],
+        events: pushEvent(s.events, { t: s.simTime, robotId: null, buildingId: null, kind: 'system', severity: 'P0', text: 'AFTERSHOCK M5.1 — eastern blocks marked STALE. Safe routes require reverification.' }),
+        alerts: pushAlert(s.alerts, { t: s.simTime, level: 'critical', title: 'Aftershock M5.1', detail: 'Eastern blocks stale. Routes through B07 / B10 / B14 need reverification.', }),
         routes: s.routes.map((r) => r.status === 'active' ? { ...r, status: 'invalid', reason: 'Requires reverification after aftershock' } : r),
         audit: [...s.audit, { id: nid('au'), t: s.simTime, actor: 'System', text: 'Aftershock protocol: stale flags set, routes invalidated.' }],
       });

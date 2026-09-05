@@ -33,7 +33,7 @@ export default function TopBar({ view, setView }: { view: string; setView: (v: s
   return (
     <header className="topbar">
       <div className="brand"><span className="dot" /><span>RESCUEGRID</span></div>
-      <span className="chip">CENTRAL DISTRICT · M6.2</span>
+      <span className="chip">PARIS 7E · M6.2</span>
       <nav className="nav" aria-label="Primary">
         {NAV.map((n) => (
           <button key={n} className={view === n ? 'on' : ''} onClick={() => setView(n)}>{n}</button>
