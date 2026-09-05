@@ -135,7 +135,7 @@ function LegendFloat() {
 }
 
 /* ── 2D minimap over the real Paris segment (PRD §50) ── */
-function Minimap() {
+export function Minimap() {
   const ref = useRef<HTMLCanvasElement>(null);
   const isolatedId = useStore((s) => s.isolatedId);
   const [hidden, setHidden] = useState(false);
@@ -354,6 +354,8 @@ export function CommandPalette() {
       } },
       { label: 'Trigger aftershock (demo)', hint: 'demo', run: () => st.aftershock() },
       { label: 'Reset incident', hint: 'demo', run: () => st.reset() },
+      { label: 'Viewport — real photorealistic 3D', hint: 'map', run: () => st.setView3d('real') },
+      { label: 'Viewport — offline OSM 3D', hint: 'map', run: () => st.setView3d('offline') },
     ];
     const needle = q.trim().toLowerCase();
     return needle ? all.filter((c) => c.label.toLowerCase().includes(needle)).slice(0, 12) : all.slice(0, 12);

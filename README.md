@@ -63,7 +63,7 @@ The default **Overview** is a full-screen command center (the 3D map occupies ~7
 
 | Zone | Contents |
 |---|---|
-| **Top bar** | PARIS 7E incident chip · nav (Overview, Robots, Missions, Discoveries, Map, Timeline, Incident Log, System) · map search · fleet link health · unacked-alert count · SIMULATION / LIVE / REPLAY badge · incident clock |
+| **Top bar** | PARIS 7E incident chip · nav (Overview, Robots, Missions, Discoveries, Map, Timeline, Log, System) · map search · OSM 3D / REAL 3D viewport toggle · fleet link health · unacked-alert count · SIMULATION / LIVE / REPLAY badge · incident clock |
 | **Left panel** | Tabbed: **Fleet** (compact status rows — click to focus camera), **Missions**, **Intel** (survivors → hazards → latest findings) |
 | **Center** | Interactive 3D Paris map + slim tool rail, view selector, collapsible map key, 2D minimap, alert toasts (max 2), building-focus card, and a floating inspector that appears only while something is selected |
 | **Bottom** | Timeline scrubber with LIVE indicator, filterable event feed, simulation controls (inject discovery/hazard, drop link, spawn survivor, aftershock, reset), mini audit log |
@@ -74,7 +74,13 @@ Other nav views reuse the same live data as dense tables/workflows: **Robots** (
 
 ## 4. How to use it
 
-### 4.1 The 90-second guided demo (just watch)
+### 4.1 Real photorealistic 3D mode (no modeling)
+
+The top-bar **REAL 3D** toggle swaps the viewport to Google's photorealistic 3D Paris — textured Eiffel Tower, streets, and blocks streamed as 3D tiles. Nothing is modeled: robots, hazards, survivors, staging, and routes render as live 3D markers/polylines driven by the same simulation, marker clicks open the same inspector, and camera presets fly the real camera.
+
+- Requires internet + a free Maps API key: Google Cloud console → new project → enable **Maps JavaScript API** → create a key (restrict it) → paste it in the in-app setup panel (session only) or set `VITE_GOOGLE_MAPS_KEY` (see `.env.example`) and rebuild. A billing account is required by Google; demo-scale use stays in the free quota.
+- Without a key the toggle shows the setup panel; with a bad key Google shows its standard error and the app offers one-click fallback.
+- **OSM 3D stays the default** and works fully offline — real-3D is an opt-in viewport, not a dependency.
 
 The incident runs itself on load (2× speed). Key beats, in sim time:
 
@@ -89,20 +95,22 @@ The incident runs itself on load (2× speed). Key beats, in sim time:
 | ~92s | **R-02 loses link** in the eastern dead zone — grey marker, growing uncertainty ring |
 | ongoing | Ambient mapping discoveries, battery drain, low-battery warnings |
 
-### 4.2 Interacting with the map
+### 4.2 The 90-second guided demo — offline OSM 3D
 
-- **Click** any robot, building, hazard, or survivor to inspect it (right panel) — drag-rotating doesn't trigger selection.
+### 4.3 Interacting with the map
+
+- **Click** any robot, building, hazard, or survivor to inspect it (floating inspector card) — drag-rotating doesn't trigger selection.
 - **Orbit / pan / zoom** with the mouse (OrbitControls with damping). `1` = top-down coverage, `2` = full incident.
 - **Building deep-dive:** select a building → **Isolate + explode** → neighboring structures dim, floors separate on a slider, per-floor exploration listed; **cutaway planes** (X / Z / altitude) slice the structure; **Baseline ⇄ Observed** compares import vs. robot truth. Exit with the Exit button or `Esc`.
 - **Create a mission:** pick a type from the dropdown (or press `M`), click **+ Mission**, then click/double-click a map point — the nearest free robots are tasked and a planned route is drawn.
 - **React to change:** hazard cards show what they invalidate and offer **Confirm reroute**; survivor cards offer **Assign verification** plus a full Possible → … → Evacuated / False state workflow; high-impact robot actions (e.g. E-stop, aborting a P0 mission) ask for confirmation.
 - **Search** (`R-04`, `B14`, `gas`, `survivor`…) frames the match and opens its inspector.
 
-### 4.3 Timeline replay
+### 4.4 Timeline replay
 
 Drag the bottom scrubber backward: the badge flips to **REPLAY + timestamp**, robots render at historical positions, and anything discovered later stays hidden. Press **Back to LIVE** (or `T`) to return. The simulation keeps running underneath, so nothing is lost.
 
-### 4.4 Command palette & keyboard shortcuts
+### 4.5 Command palette & keyboard shortcuts
 
 | Key | Action |
 |---|---|
@@ -115,7 +123,7 @@ Drag the bottom scrubber backward: the badge flips to **REPLAY + timestamp**, ro
 | `Space` | Play / pause (when timeline focused) |
 | `Esc` | Clear selection, close palette, disarm mission draft |
 
-### 4.5 Layers (floating panel)
+### 4.6 Layers (floating panel)
 
 - **Environment:** baseline (pre-disaster import), observed reality, point clouds, exploration coverage fog
 - **Operations:** robots, trails, routes, missions, relays & staging, labels
@@ -125,7 +133,7 @@ Drag the bottom scrubber backward: the badge flips to **REPLAY + timestamp**, ro
 
 Camera presets (bottom-left chips): **Incident · Robots · Hazards · Survivors · Comms · Coverage**.
 
-### 4.6 Simulation controls (bottom-right)
+### 4.7 Simulation controls (bottom-right)
 
 Play/pause, **1× / 2× / 4×** speed, and demo injectors: **Discovery**, **Hazard**, **Drop link** (kill a robot's comms), **Survivor**, **Aftershock** (M5.1 — central blocks go STALE, all active routes require reverification), **Reset** (back to T+0). The **SIMULATION** badge is always visible so a demo can never masquerade as a live incident.
 
@@ -195,7 +203,8 @@ scripts/
 ## 8. Verification performed
 
 - `npm run typecheck` — clean; `npm run build` — clean single static bundle (~770 KB JS, ~209 KB gzip).
-- Scripted headless-browser pass (Chromium + SwiftShader): full demo arc to survivor + stair collapse, robot/building selection, isolate + explode + cutaway, command palette, aftershock, layer toggles — **0 console/page errors**, scene-graph object counts stable (no leaks).
+- Scripted headless-browser pass (Chromium + SwiftShader): full demo arc to survivor + stair collapse, robot/building selection, isolate + explode + cutaway, command palette, aftershock, layer toggles — **0 console/page errors from app code**, scene-graph object counts stable (no leaks).
+- Real-3D pass: setup panel with no key; graceful auth-failure handling with a bad key (Google's own error UI + one-click offline fallback); marker/polyline construction validated against the live Maps JS API (an over-limit line width the API rejected was caught and fixed during testing).
 - Simulation unit pass (headless tick to T+140 s): blocked passage, gas, survivor, route invalidation, R-02 comms loss, B14 contradicted + priority, aftershock staleness, mission creation — all PASS.
 - This process caught and fixed two real defects: a Zustand selector infinite-render loop and a missing reconcile-map insert that duplicated scene objects every frame.
 

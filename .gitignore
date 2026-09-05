@@ -2,6 +2,7 @@ node_modules
 dist
 dist-ssr
 *.local
+.env.local
 .DS_Store
 tsconfig.tsbuildinfo
 src/tsconfig.tsbuildinfo

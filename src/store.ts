@@ -55,6 +55,9 @@ interface Store {
   reducedMotion: boolean;
   paletteOpen: boolean;
   simBanner: boolean;
+  /** 3D viewport: local OSM scene vs real photorealistic tiles (needs key+net) */
+  view3d: 'offline' | 'real';
+  mapsKey: string;
 
   tick: (dtReal: number) => void;
   play: () => void; pause: () => void; cycleSpeed: () => void;
@@ -87,6 +90,8 @@ interface Store {
   mitigateHazard: (id: string) => void;
   updateRobotStatus: (id: string, s: RobotState['status']) => void;
   setPalette: (o: boolean) => void;
+  setView3d: (v: 'offline' | 'real') => void;
+  setMapsKey: (k: string) => void;
   toggleContrast: () => void; toggleMotion: () => void;
   auditLog: (text: string) => void;
 }
@@ -196,6 +201,15 @@ function pushAlert(list: Alert[], a: Omit<Alert, 'id' | 'acked'>): Alert[] {
 
 function fireOnce(fired: Record<string, boolean>, key: string): boolean {
   return !fired[key];
+}
+
+// Google Maps key: build-time env wins, otherwise a key pasted in-app (session only, never committed).
+function storedMapsKey(): string {
+  try {
+    const env = (import.meta.env.VITE_GOOGLE_MAPS_KEY as string | undefined) || '';
+    if (env) return env;
+    return sessionStorage.getItem('rg-maps-key') || '';
+  } catch { return ''; }
 }
 
 export const useStore = create<Store>((set, get) => {
@@ -352,6 +366,7 @@ export const useStore = create<Store>((set, get) => {
     focusReq: null, camReq: null, coverage: init.coverage, fired: init.fired,
     ambientAt: init.ambientAt, histAt: init.histAt,
     missionDraft: null, highContrast: false, reducedMotion: false, paletteOpen: false, simBanner: true,
+    view3d: storedMapsKey() ? 'real' : 'offline', mapsKey: storedMapsKey(),
 
     tick: (dtReal) => {
       const s = get();
@@ -601,6 +616,11 @@ export const useStore = create<Store>((set, get) => {
       audit: [...s.audit, { id: nid('au'), t: s.simTime, actor: 'Operator', text: `${id} → ${stt}.` }],
     })),
     setPalette: (o) => set({ paletteOpen: o }),
+    setView3d: (v) => set({ view3d: v }),
+    setMapsKey: (k) => {
+      try { sessionStorage.setItem('rg-maps-key', k); } catch { /* private mode */ }
+      set({ mapsKey: k, view3d: k ? 'real' : 'offline' });
+    },
     toggleContrast: () => set((s) => ({ highContrast: !s.highContrast })),
     toggleMotion: () => set((s) => ({ reducedMotion: !s.reducedMotion })),
   };

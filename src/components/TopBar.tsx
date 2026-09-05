@@ -2,10 +2,13 @@ import { useState } from 'react';
 import { Search, Radio, Clock3, ShieldAlert, Contrast, PersonStanding, Command } from 'lucide-react';
 import { useStore, fmtClock } from '../store';
 
-const NAV = ['Overview', 'Robots', 'Missions', 'Discoveries', 'Map', 'Timeline', 'Incident Log', 'System'];
+const NAV = ['Overview', 'Robots', 'Missions', 'Discoveries', 'Map', 'Timeline', 'Log', 'System'];
 
 export default function TopBar({ view, setView }: { view: string; setView: (v: string) => void }) {
   const { simTime, robots, alerts, viewTime, layers } = useStore();
+  const view3d = useStore((s) => s.view3d);
+  const setView3d = useStore((s) => s.setView3d);
+  const mapsKey = useStore((s) => s.mapsKey);
   const [q, setQ] = useState('');
   const focus = useStore((s) => s.focus);
   const select = useStore((s) => s.select);
@@ -51,6 +54,15 @@ export default function TopBar({ view, setView }: { view: string; setView: (v: s
       <span className="badge" title="Fleet link health"><Radio size={12} color={connected < robots.length ? '#fbbf24' : '#34d399'} />
         <span className="num">{connected}/{robots.length}</span>
       </span>
+      <div role="group" aria-label="3D viewport" title={mapsKey ? 'Viewport: offline OSM scene vs real photorealistic 3D' : 'Viewport (real 3D needs an API key)'}
+        style={{ display: 'flex', border: '1px solid var(--line-strong)', borderRadius: 8, overflow: 'hidden' }}>
+        {(['offline', 'real'] as const).map((m) => (
+          <button key={m} onClick={() => setView3d(m)} aria-pressed={view3d === m}
+            style={{ background: view3d === m ? 'rgba(34,211,238,.14)' : 'none', border: 0, color: view3d === m ? '#a5f3fc' : 'var(--mut)', fontSize: 10.5, fontWeight: 800, letterSpacing: '.05em', padding: '5px 9px', cursor: 'pointer' }}>
+            {m === 'offline' ? 'OSM 3D' : 'REAL 3D'}
+          </button>
+        ))}
+      </div>
       <span className="badge" title="Unacknowledged alerts" style={{ color: crit ? '#fca5a5' : elev ? '#fde68a' : undefined }}>
         <ShieldAlert size={12} /> <span className="num">{crit + elev}</span>
       </span>

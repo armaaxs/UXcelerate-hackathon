@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import TopBar from './components/TopBar';
 import LeftPanel from './components/LeftPanel';
 import { InspectorCard } from './components/RightPanel';
+import RealMapView from './three/RealMapView';
 import BottomBar from './components/BottomBar';
 import RescueCanvas from './three/RescueCanvas';
 import { LayerPanel, MapToolbar, Alerts, BuildingFocus, CommandPalette } from './components/Overlays';
@@ -10,6 +11,7 @@ import { useStore, fmtClock, fmtAge } from './store';
 export default function App() {
   const [view, setView] = useState('Overview');
   const [layersOpen, setLayersOpen] = useState(false);
+  const view3d = useStore((s) => s.view3d);
   const highContrast = useStore((s) => s.highContrast);
 
   useEffect(() => {
@@ -23,14 +25,22 @@ export default function App() {
         <aside className="left" aria-label="Fleet and missions"><LeftPanel /></aside>
         <section className="center">
           {view === 'Overview' ? (
-            <>
-              <RescueCanvas />
-              <MapToolbar onLayers={() => setLayersOpen((o) => !o)} />
-              <LayerPanel open={layersOpen} onClose={() => setLayersOpen(false)} />
-              <Alerts />
-              <BuildingFocus />
-              <InspectorCard />
-            </>
+            view3d === 'real' ? (
+              <>
+                <RealMapView />
+                <Alerts />
+                <InspectorCard />
+              </>
+            ) : (
+              <>
+                <RescueCanvas />
+                <MapToolbar onLayers={() => setLayersOpen((o) => !o)} />
+                <LayerPanel open={layersOpen} onClose={() => setLayersOpen(false)} />
+                <Alerts />
+                <BuildingFocus />
+                <InspectorCard />
+              </>
+            )
           ) : (
             <SecondaryView view={view} setView={setView} />
           )}
@@ -115,7 +125,7 @@ function SecondaryView({ view, setView }: { view: string; setView: (v: string) =
           <span>[{e.kind}] {e.text}</span>
         </div>))}</div></div>
   );
-  if (view === 'Incident Log') return (
+  if (view === 'Log') return (
     <div style={wrap}><div>{back()}<h2 style={h}>Incident log & audit</h2>
       <p style={sub}>Every operational command is recorded with actor and timestamp.</p>
       <h3 style={{ fontSize: 12, color: 'var(--mut)' }}>SURVIVORS ({survivors.length})</h3>
